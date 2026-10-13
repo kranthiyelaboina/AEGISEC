@@ -1,4 +1,4 @@
-<h1 align="center">aegisec</h1>
+<h1 align="center">AEGISEC</h1>
 
 <p align="center">
   <sub>Developed by <b>Kranthi Yelaboina</b></sub>
