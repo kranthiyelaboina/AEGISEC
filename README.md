@@ -100,16 +100,6 @@ When the work changes, switch posture. When something matters, keep the finding,
 Then come back later and resume without starting from zero.
 
 <p align="center">
-  <a href="https://github.com/kranthiyelaboina/AEGISEC/blob/main/assets/aegisec1.png">
-    <img src="https://raw.githubusercontent.com/kranthiyelaboina/AEGISEC/main/assets/aegisec1.png" alt="AEGISEC terminal agent-selection menu" width="820" />
-  </a>
-</p>
-
-<p align="center">
-  <sub>Choose a workflow posture from the terminal. Available agents and actions depend on the installed build and local configuration.</sub>
-</p>
-
-<p align="center">
   <a href="https://github.com/kranthiyelaboina/AEGISEC/blob/main/assets/aegisec.png">
     <img src="https://raw.githubusercontent.com/kranthiyelaboina/AEGISEC/main/assets/aegisec.png" alt="AEGISEC startup screen showing local runtime checks and a resumable operation session" width="920" />
   </a>
