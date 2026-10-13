@@ -1,0 +1,13 @@
+Legacy CVE compatibility tool. Prefer `knowledge` with `intent: "vuln_intel"` for new work.
+
+This tool delegates to the Cyber Knowledge Broker and queries public no-key vulnerability intelligence sources such as NVD, CISA KEV, FIRST EPSS, OSV, and GitHub Security Advisories where applicable. Public sources may rate-limit unauthenticated requests.
+
+Use this when:
+- You have a CVE ID and need advisory context.
+- You have a product/package keyword and need vulnerability intelligence candidates.
+- You need compatibility with older aegisec prompts or workflows that still call `cve`.
+
+Important:
+- CVE intelligence is not a finding.
+- KEV/EPSS/exploit signals prioritize validation; they do not prove applicability.
+- A reportable finding still requires observed applicability plus evidence and replay or a structured replay exemption.

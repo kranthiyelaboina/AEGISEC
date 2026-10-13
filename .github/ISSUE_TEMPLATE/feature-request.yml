@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a aegisec capability, workflow, adapter, or UI improvement
+labels: ["enhancement"]
+title: "[Feature]: "
+
+body:
+  - type: checkboxes
+    id: verified
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched existing issues and discussions before opening this request.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Operator workflow or problem
+      description: What cyber workflow is blocked, slow, noisy, or hard to trust today?
+      placeholder: e.g. AppSec triage loses evidence for browser-discovered forms
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should aegisec do differently?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Domain
+      options:
+        - AppSec
+        - Pentest
+        - OSINT
+        - CTF / hacking
+        - Cloud / container / IaC
+        - Forensics / binary
+        - TUI / UX
+        - Release / CI
+        - Other
+    validations:
+      required: false

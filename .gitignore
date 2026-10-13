@@ -1,0 +1,47 @@
+.DS_Store
+node_modules
+.worktrees
+.sst
+.env
+.idea
+.vscode
+.codex
+*~
+playground
+tmp
+dist
+ts-dist
+.turbo
+**/.serena
+.serena/
+/result
+refs
+Session.vim
+a.out
+target
+.scripts
+.direnv/
+
+# Local dev files
+UPCOMING_CHANGELOG.md
+logs/
+*.bun-build
+tsconfig.tsbuildinfo
+
+# Runtime artifacts
+session.json
+/aegisec.json
+.aegisec/
+.playwright-browsers/
+
+# Local notes (agent scratchpad)
+notes/
+.superpowers/
+
+# Release evidence generated locally or by CI
+/packages/aegisec/bench-results-*.json
+/docs/releases/*-evidence/
+
+# Internal documentation (not for public release)
+/docs/superpowers
+opencode.json

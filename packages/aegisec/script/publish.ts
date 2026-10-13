@@ -1,0 +1,195 @@
+#!/usr/bin/env bun
+import { $ } from "bun"
+import pkg from "../package.json"
+import { Script } from "@aegisec/script"
+import { fileURLToPath } from "url"
+
+const dir = fileURLToPath(new URL("..", import.meta.url))
+process.chdir(dir)
+
+const binaries: Record<string, string> = {}
+for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" })) {
+  const pkg = await Bun.file(`./dist/${filepath}`).json()
+  binaries[pkg.name] = pkg.version
+}
+console.log("binaries", binaries)
+const version = Object.values(binaries)[0]
+
+await $`mkdir -p ./dist/${pkg.name}`
+await $`cp -r ./bin ./dist/${pkg.name}/bin`
+await $`cp ./script/postinstall.mjs ./dist/${pkg.name}/postinstall.mjs`
+await Bun.file(`./dist/${pkg.name}/LICENSE`).write(await Bun.file("../../LICENSE").text())
+await Bun.file(`./dist/${pkg.name}/NOTICE`).write(await Bun.file("../../NOTICE").text())
+await Bun.file(`./dist/${pkg.name}/README.md`).write(await Bun.file("../../README.md").text())
+
+await Bun.file(`./dist/${pkg.name}/package.json`).write(
+  JSON.stringify(
+    {
+      name: pkg.name,
+      description: "Terminal-native AI cyber operator harness",
+      bin: {
+        [pkg.name]: `./bin/${pkg.name}`,
+      },
+      scripts: {
+        postinstall: "bun ./postinstall.mjs || node ./postinstall.mjs",
+      },
+      version: version,
+      license: pkg.license,
+      repository: {
+        type: "git",
+        url: "https://github.com/kranthiyelaboina/AEGISEC",
+      },
+      homepage: "https://github.com/kranthiyelaboina/AEGISEC",
+      bugs: {
+        url: "https://github.com/kranthiyelaboina/AEGISEC/issues",
+      },
+      keywords: ["cybersecurity", "appsec", "pentest", "security", "agent", "terminal"],
+      engines: {
+        bun: ">=1.3.11",
+      },
+      optionalDependencies: binaries,
+    },
+    null,
+    2,
+  ),
+)
+
+const tasks = Object.entries(binaries).map(async ([name]) => {
+  if (process.platform !== "win32") {
+    await $`chmod -R 755 .`.cwd(`./dist/${name}`)
+  }
+  await $`bun pm pack`.cwd(`./dist/${name}`)
+  await $`npm publish *.tgz --access public --tag ${Script.channel}`.cwd(`./dist/${name}`)
+})
+await Promise.all(tasks)
+await $`cd ./dist/${pkg.name} && bun pm pack && npm publish *.tgz --access public --tag ${Script.channel}`
+
+const image = "kranthiyelaboina/AEGISEC"
+const platforms = "linux/amd64,linux/arm64"
+const tags = [`${image}:${version}`, `${image}:${Script.channel}`]
+const tagFlags = tags.flatMap((t) => ["-t", t])
+await $`docker buildx build --platform ${platforms} -f Dockerfile ${tagFlags} --push ../..`
+
+// registries
+if (!Script.preview) {
+  // Calculate SHA values
+  const arm64Sha = await $`sha256sum ./dist/aegisec-linux-arm64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
+  const x64Sha = await $`sha256sum ./dist/aegisec-linux-x64.tar.gz | cut -d' ' -f1`.text().then((x) => x.trim())
+  const macX64Sha = await $`sha256sum ./dist/aegisec-darwin-x64.zip | cut -d' ' -f1`.text().then((x) => x.trim())
+  const macArm64Sha = await $`sha256sum ./dist/aegisec-darwin-arm64.zip | cut -d' ' -f1`.text().then((x) => x.trim())
+
+  const [pkgver, _subver = ""] = Script.version.split(/(-.*)/, 2)
+
+  // arch
+  const binaryPkgbuild = [
+    "# Maintainer: Kranthi Yelaboina",
+    "",
+    "pkgname='aegisec-bin'",
+    `pkgver=${pkgver}`,
+    `_subver=${_subver}`,
+    "options=('!debug' '!strip')",
+    "pkgrel=1",
+    "pkgdesc='Terminal-native AI cyber operator harness.'",
+    "url='https://github.com/kranthiyelaboina/AEGISEC'",
+    "arch=('aarch64' 'x86_64')",
+    "license=('AGPL-3.0-or-later')",
+    "provides=('aegisec')",
+    "conflicts=('aegisec')",
+    "depends=('ripgrep')",
+    "",
+    `source_aarch64=("\${pkgname}_\${pkgver}_aarch64.tar.gz::https://github.com/kranthiyelaboina/AEGISEC/releases/download/v\${pkgver}\${_subver}/aegisec-linux-arm64.tar.gz")`,
+    `sha256sums_aarch64=('${arm64Sha}')`,
+
+    `source_x86_64=("\${pkgname}_\${pkgver}_x86_64.tar.gz::https://github.com/kranthiyelaboina/AEGISEC/releases/download/v\${pkgver}\${_subver}/aegisec-linux-x64.tar.gz")`,
+    `sha256sums_x86_64=('${x64Sha}')`,
+    "",
+    "package() {",
+    '  install -Dm755 ./aegisec "${pkgdir}/usr/bin/aegisec"',
+    "}",
+    "",
+  ].join("\n")
+
+  for (const [pkg, pkgbuild] of [["aegisec-bin", binaryPkgbuild]]) {
+    for (let i = 0; i < 30; i++) {
+      try {
+        await $`rm -rf ./dist/aur-${pkg}`
+        await $`git clone ssh://aur@aur.archlinux.org/${pkg}.git ./dist/aur-${pkg}`
+        await $`cd ./dist/aur-${pkg} && git checkout master`
+        await Bun.file(`./dist/aur-${pkg}/PKGBUILD`).write(pkgbuild)
+        await $`cd ./dist/aur-${pkg} && makepkg --printsrcinfo > .SRCINFO`
+        await $`cd ./dist/aur-${pkg} && git add PKGBUILD .SRCINFO`
+        await $`cd ./dist/aur-${pkg} && git commit -m "Update to v${Script.version}"`
+        await $`cd ./dist/aur-${pkg} && git push`
+        break
+      } catch {
+        continue
+      }
+    }
+  }
+
+  // Homebrew formula
+  const homebrewFormula = [
+    "# typed: false",
+    "# frozen_string_literal: true",
+    "",
+    "# This file was generated by GoReleaser. DO NOT EDIT.",
+    "class Aegisec < Formula",
+    `  desc "Terminal-native AI cyber operator harness."`,
+    `  homepage "https://github.com/kranthiyelaboina/AEGISEC"`,
+    `  version "${Script.version.split("-")[0]}"`,
+    "",
+    `  depends_on "ripgrep"`,
+    "",
+    "  on_macos do",
+    "    if Hardware::CPU.intel?",
+    `      url "https://github.com/kranthiyelaboina/AEGISEC/releases/download/v${Script.version}/aegisec-darwin-x64.zip"`,
+    `      sha256 "${macX64Sha}"`,
+    "",
+    "      def install",
+    '        bin.install "aegisec"',
+    "      end",
+    "    end",
+    "    if Hardware::CPU.arm?",
+    `      url "https://github.com/kranthiyelaboina/AEGISEC/releases/download/v${Script.version}/aegisec-darwin-arm64.zip"`,
+    `      sha256 "${macArm64Sha}"`,
+    "",
+    "      def install",
+    '        bin.install "aegisec"',
+    "      end",
+    "    end",
+    "  end",
+    "",
+    "  on_linux do",
+    "    if Hardware::CPU.intel? and Hardware::CPU.is_64_bit?",
+    `      url "https://github.com/kranthiyelaboina/AEGISEC/releases/download/v${Script.version}/aegisec-linux-x64.tar.gz"`,
+    `      sha256 "${x64Sha}"`,
+    "      def install",
+    '        bin.install "aegisec"',
+    "      end",
+    "    end",
+    "    if Hardware::CPU.arm? and Hardware::CPU.is_64_bit?",
+    `      url "https://github.com/kranthiyelaboina/AEGISEC/releases/download/v${Script.version}/aegisec-linux-arm64.tar.gz"`,
+    `      sha256 "${arm64Sha}"`,
+    "      def install",
+    '        bin.install "aegisec"',
+    "      end",
+    "    end",
+    "  end",
+    "end",
+    "",
+    "",
+  ].join("\n")
+
+  const token = process.env.GITHUB_TOKEN
+  if (!token) {
+    console.error("GITHUB_TOKEN is required to update homebrew tap")
+    process.exit(1)
+  }
+  const tap = `https://x-access-token:${token}@github.com/kranthiyelaboina/homebrew-aegisec.git`
+  await $`rm -rf ./dist/homebrew-tap`
+  await $`git clone ${tap} ./dist/homebrew-tap`
+  await Bun.file("./dist/homebrew-tap/aegisec.rb").write(homebrewFormula)
+  await $`cd ./dist/homebrew-tap && git add aegisec.rb`
+  await $`cd ./dist/homebrew-tap && git commit -m "Update to v${Script.version}"`
+  await $`cd ./dist/homebrew-tap && git push`
+}

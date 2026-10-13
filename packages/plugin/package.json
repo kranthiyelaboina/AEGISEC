@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@aegisec/plugin",
+  "version": "1.2.1",
+  "description": "Plugin API for the aegisec terminal-native cyber operator harness",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kranthiyelaboina/AEGISEC"
+  },
+  "homepage": "https://github.com/kranthiyelaboina/AEGISEC",
+  "bugs": {
+    "url": "https://github.com/kranthiyelaboina/AEGISEC/issues"
+  },
+  "keywords": [
+    "aegisec",
+    "plugin",
+    "cybersecurity",
+    "appsec",
+    "pentest"
+  ],
+  "engines": {
+    "bun": ">=1.3.11"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "build": "tsc"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tool": "./src/tool.ts",
+    "./tui": "./src/tui.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@aegisec/sdk": "workspace:*",
+    "effect": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.1.99",
+    "@opentui/solid": ">=0.1.99"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opentui/core": "0.1.99",
+    "@opentui/solid": "0.1.99",
+    "@tsconfig/node22": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

@@ -1,0 +1,1092 @@
+================================================================================
+AEGISEC: A PROOF-GATED, TERMINAL-NATIVE AI CYBER-OPERATOR HARNESS WITH A
+PROVENANCE-CARRYING OPERATION KERNEL
+================================================================================
+
+Author:        Kranthi Yelaboina
+Affiliation:   [Independent Researcher / Department, Institution]
+Contact:       [email]
+Artifact:      https://github.com/kranthiyelaboina/AEGISEC
+Version:       aegisec 1.2.1
+License:       GNU AGPL-3.0-or-later
+
+Manuscript prepared in the style of an IEEE conference paper. This single file is
+both the product documentation and a publishable technical manuscript: it explains
+the system end to end, states the research contribution, and provides the design,
+implementation, and evaluation material required for peer review.
+
+--------------------------------------------------------------------------------
+ABSTRACT
+--------------------------------------------------------------------------------
+Large language models (LLMs) can now drive real security tooling, browse targets,
+and write plausible finding narratives. In security work this plausibility is a
+liability: an agent that *sounds* certain can produce a report that no operator can
+reproduce. Existing LLM security agents either (i) wrap a model over a chat box and
+inherit its overclaiming, or (ii) orchestrate scanners as a flat "N-tools" pipeline
+with no provenance, no notion of verification, and no way to distinguish a
+hypothesis from a proven fact.
+
+This paper presents AEGISEC, a terminal-native AI cyber-operator harness that
+inverts the usual design. Rather than trusting the model's confidence, AEGISEC
+treats the model as a *proposer of hypotheses* and places a deterministic, code-level
+barrier between a model's statement and a reportable security claim. The central
+idea is a Provenance-Carrying Cyber Operation Kernel (PCK): an append-only ledger,
+a set of provenance-tagged facts and relations, a content-addressed evidence store,
+and a tamper-evident replay format. On top of the kernel sits a Proof Oracle - a
+deterministic verifier that gates a finding's promotion to "reportable" on
+(1) the presence of evidence references and (2) either a replay bundle or an
+*explicit, structured replay exemption*. A claim that cannot satisfy the oracle
+remains visible as a suspected candidate and is structurally unable to reach the
+report.
+
+We contribute: (C1) the kernel-first operation model that makes security state
+queryable and provenance-tracked; (C2) the finding lifecycle with an
+evidence-and-replay proof gate; (C3) an algebra of structured replay exemptions
+that replaces free-form confidence with auditable categories; (C4) the .aegisec
+self-contained, hash-anchored, offline replay format; (C5) an operator-defined
+boundary contract with an opsec leakage guard; (C6) a provenance-aware Cyber
+Knowledge Broker with explicit applicability states; (C7) a declarative "capsule"
+workflow layer that constrains agent behavior to normalized steps; and (C8) a
+kernel-artifact-preferring benchmark that refuses to reward a correct-sounding
+answer that was never persisted as evidence-backed state. We describe the
+architecture, give the kernel schema and oracle semantics, and specify a
+reproducible evaluation harness built on disposable OWASP Juice Shop fixtures.
+
+Index Terms - autonomous security agents; LLM agents; provenance; reproducibility;
+digital evidence; penetration testing; application security; tool-augmented
+reasoning; agent harness; human-in-the-loop autonomy.
+
+--------------------------------------------------------------------------------
+I. INTRODUCTION
+--------------------------------------------------------------------------------
+
+A. The Overclaiming Problem
+---------------------------
+Coding agents changed how software is written: they read a repository, run commands,
+edit files, execute tests, and remain inside the development loop. Security work
+deserves the same shift, but it carries a constraint that coding does not. A security
+claim is consumed by a third party - a client, a bug-bounty triager, a patch author -
+and it must be *reproducible*. A compiler will reject a wrong edit; nobody
+automatically rejects a wrong finding. The cost of a false security claim is borne
+later, by someone else, often at the worst possible time.
+
+An LLM is a fluent narrator. Fluency is exactly the wrong property for evidence. When
+an autonomous agent is asked "is this endpoint vulnerable?", a model that has learned
+to be helpful will tend to produce a confident, well-formatted answer whether or not
+it actually demonstrated anything. We call this failure mode *evidence-free
+confidence*, and in security it is the dominant mode of AI slop.
+
+B. Why Existing Architectures Fail
+----------------------------------
+We group prior approaches into two families and state their structural defects:
+
+1. Chat-centric assistants. A model is placed behind a chat surface with a handful of
+   tools. State lives in the conversation transcript. There is no durable, queryable
+   notion of "the operation", no separation between what the model *said* and what was
+   *observed*, and no verification step. The transcript drifts, context is lost across
+   sessions, and a confident sentence and a proven fact are indistinguishable in the
+   output.
+
+2. Flat tool orchestrators. A model is wired to many scanners ("N-tools"). The defects
+   are the mirror image: output is a pile of raw tool text with no semantic parsing,
+   state is maintained by the LLM itself with no provenance, and there is no lifecycle
+   that could reject a candidate. The agent looks productive and produces reports from
+   weak evidence.
+
+Both families share the same root cause: the *model* is treated as the authority on
+what is true. AEGISEC exists to remove the model from that role.
+
+C. Thesis: The Harness as an Epistemic Gate
+-------------------------------------------
+The model is not modified. Model weights, providers, and prompts are the same frontier
+LLMs any other agent would use. The leverage - and therefore the research contribution
+- is the *wrapper*, which we call a harness. We advance the following thesis:
+
+    An AI security agent becomes trustworthy not by making the model more careful,
+    but by making the surrounding system refuse to accept the model's confidence as
+    proof. The harness must be an epistemic gate: the model proposes, the kernel
+    records, and an independent oracle verifies.
+
+This reframes the research problem from prompt engineering ("how do we stop the model
+from lying?") to systems design ("how do we make a false claim structurally unable to
+become a report?"). AEGISEC's answer is a kernel-first operation model in which the
+canonical state is a provenance-carrying event graph, and a deterministic proof gate
+that a finding must pass before it can be reported.
+
+D. Contributions
+----------------
+This paper makes the following contributions:
+
+C1. Cyber Operation Kernel (PCK). An append-only ledger over a provenance-tagged
+    fact/relation graph, with a stable schema, writer taxonomy, confidence, status,
+    and source-event back-references. Canonical state is events and projected facts;
+    human-readable context is explicitly a derived view (Section IV).
+
+C2. Proof-Gated Finding Lifecycle. A six-state lifecycle (candidate, observed,
+    verified, rejected, stale, and the derived reporting state "reportable") in which
+    promotion is controlled by code, not by the model (Section V).
+
+C3. Structured Replay Exemption Algebra. A closed set of exemption categories
+    (destructive_target, operator_controlled_state, external_dependency,
+    time_bound_access) scoped per domain, replacing narrative confidence with an
+    auditable, machine-checkable reason why replay is impossible (Section V-C).
+
+C4. The .aegisec Replay Format. A self-contained, line-delimited JSON stream with a
+    header/event/trailer envelope, a SHA-256 body anchor for tamper detection, optional
+    signing, and deterministic offline replay that is forbidden from re-executing tools
+    against live targets (Section VI).
+
+C5. Boundary Contract and Opsec Guard. An operator-defined scope model compiled to a
+    matching function, plus an opsec "strict" mode that blocks third-party intelligence
+    hosts to prevent passive leakage of the target (Section VII).
+
+C6. Cyber Knowledge Broker. A provenance-aware knowledge surface unifying vulnerability
+    intelligence, methodology, tradecraft, exploit signals, and tool documentation, with
+    explicit applicability states and KEV/EPSS enrichment (Section VIII-A).
+
+C7. Declarative Capsules. A deterministic workflow ("play"/"runbook") layer whose steps
+    are normalized and flattened into an execution contract, replacing nondeterministic
+    tool spam with a recognizable task shape (Section VIII-C).
+
+C8. Kernel-Artifact-Preferring Evaluation. A benchmark harness that scores operation
+    state rather than prose, so a run cannot pass by naming the right issue while
+    failing to persist evidence-backed state (Section X).
+
+The remainder of the paper is organized as follows. Section II positions AEGISEC
+against related work. Section III gives the system overview. Sections IV-VIII describe
+the mechanism layer. Section IX covers implementation. Section X specifies evaluation.
+Sections XI-XII discuss, conclude, and outline future work.
+
+--------------------------------------------------------------------------------
+II. BACKGROUND AND RELATED WORK
+--------------------------------------------------------------------------------
+
+A. Tool-Augmented and Terminal Agents
+-------------------------------------
+Modern coding agents demonstrated that an LLM with a filesystem, a shell, and a test
+loop can complete multi-step engineering tasks. The general recipe - a system prompt, a
+tool schema, and an iterative observe/act loop - has become standard. AEGISEC adopts
+this recipe but targets a different domain whose success criterion is not "the code
+compiles" but "the finding is reproducible." Where coding agents can lean on an
+executable oracle (the test suite), security agents must construct the oracle. AEGISEC
+constructs it explicitly (Section V).
+
+B. LLM Security and Autonomous Pentesting Agents
+------------------------------------------------
+Recent work wires LLMs to penetration-testing tools and benchmarks their ability to
+solve CTF-style challenges. These systems are valuable but typically measure *task
+completion* (did the agent capture the flag / find the bug) rather than *claim
+integrity* (can the agent's output be reproduced and audited). AEGISEC is complementary:
+it assumes the model can already act, and focuses on the accountability layer. Its
+benchmarks reward persisted, evidence-backed state, not just a correct final sentence.
+
+C. Provenance and Evidence in Data Systems
+------------------------------------------
+Provenance has a long history in databases and scientific workflows. AEGISEC imports
+these ideas into the agent domain. Every durable fact records its writer
+(parser/tool/oracle/operator/llm_candidate), its status, an optional confidence, the
+originating ledger event, and the evidence references that back it. This mirrors
+data-lineage practice and makes the agent's memory auditable, a property absent from
+transcript-memory agents.
+
+D. Reproducibility in Security
+------------------------------
+Reproducibility is a first-class norm in security research but is routinely violated in
+operational reporting. Replay in AEGISEC is deliberately narrow: it replays the *record
+of work* (messages, tool calls, tool results) without touching a live target, so a
+reviewer can inspect exactly what happened without re-attacking anything (Section VI).
+
+E. Gap Analysis
+---------------
+The table below contrasts the two prior families with AEGISEC across the properties
+that matter for trustworthy security work.
+
+  Property                Chat-centric   Flat orchestrator   AEGISEC
+  ---------------------------------------------------------------------------
+  Durable, queryable op   No             Partial             Yes (kernel)
+  State authority         LLM            LLM                 Code (kernel+oracle)
+  Provenance per fact     No             No                  Yes
+  Finding lifecycle       No             No                  Yes (6 states)
+  Evidence requirement    No             No                  Yes (hard gate)
+  Replay requirement      No             No                  Yes (or exemption)
+  Scope enforced in code  No             Rarely              Yes (boundary guard)
+  Opsec leakage guard     No             No                  Yes (strict mode)
+  Capability honesty      N/A            Implied             Explicit (readiness)
+  Prompt transparency     Partial        No                  Yes (public brain)
+  Benchmark targets proof No             Usually             Yes (kernel artifacts)
+
+Table I. Positioning of AEGISEC relative to prior agent architectures.
+
+--------------------------------------------------------------------------------
+III. SYSTEM OVERVIEW
+--------------------------------------------------------------------------------
+
+A. Design Principles
+--------------------
+AEGISEC is governed by six ordered principles, encoded in the project manifesto and
+enforced as product requirements:
+
+  P1. Operator first, model second. Every consequential action is a proposal the
+      operator can confirm, reject, or override.
+  P2. Public brain. Every prompt, glyph, default tool list, and TUI string lives in the
+      repository as plain text under a free license; the reasoning surface is auditable
+      from the same git clone.
+  P3. Authorized scope is sacred. Scope is an operator-defined contract the agent must
+      respect; out-of-scope work is denied, not negotiated.
+  P4. Reproducible or it did not happen. An engagement is a sequence of events that can
+      be exported and replayed; findings without evidence and replay are notes.
+  P5. Five disciplines, one lineup. pentest, appsec, osint, security, and hacking are
+      equi-citizens; switching modes is one keystroke.
+  P6. Refuse magic. No fragile parsers over every CLI, no hidden policies, no telemetry,
+      no cloud backend. Capability lives in primitives the operator understands.
+
+These principles are not decorative. P4 is implemented by the proof gate (Section V);
+P3 by the boundary guard (Section VII); P2 by bundling prompts in-repo; P6 by a
+transparent tool palette and a capability readiness model (Section VIII-B).
+
+B. Layered Architecture
+-----------------------
+AEGISEC is organized as four horizontal layers over one vertical state spine.
+
+  +--------------------------------------------------------------------------+
+  |  OPERATOR CONSOLE (terminal TUI)                                          |
+  |  chat-first surface + operation lenses: findings | evidence | replay |     |
+  |  workflow | report                                                        |
+  +--------------------------------------------------------------------------+
+  |  AGENT / KINDS        | security pentest appsec osint hacking             |
+  |  (public prompts)     | runbook/play capsules                             |
+  +--------------------------------------------------------------------------+
+  |  TOOL LAYER           | bash http_request browser scanner crypto net      |
+  |  (primitives)         | vault interact methodology knowledge evidence      |
+  |                       | finding observation report scope opsec identity   |
+  +--------------------------------------------------------------------------+
+  |  PROOF LAYER          | Evidence store | Replay format | Proof Oracle     |
+  |                       | Boundary guard | Knowledge broker | Doctor       |
+  +--------------------------------------------------------------------------+
+  |  CYBER OPERATION KERNEL  (source of truth)                                |
+  |  ledger --> facts --> relations --> (projections) --> findings/report     |
+  +--------------------------------------------------------------------------+
+
+  Derived, non-canonical views: aegisec.md context packs, JSONL projections,
+  markdown context artifacts. These orient the model but never override the kernel.
+
+Figure 1. AEGISEC layered architecture. The kernel is the single source of truth;
+everything a human reads is a derived projection of it.
+
+C. Terminology
+--------------
+  Operation     The durable unit of cyber work: ledger + facts + relations + evidence
+                + replay + workflow + deliverables, stored under
+                <workspace>/.aegisec/operation/<slug>/.
+  Cyber kernel  The canonical, provenance-carrying event/state store (Section IV).
+  Fact          A single provenance-tagged assertion about an entity (Section IV-B).
+  Relation      A typed edge in the operation graph (Section IV-C).
+  Observation   An evidence-backed signal that is not yet a finding.
+  Finding       An entity in the lifecycle (candidate/verified/rejected/stale).
+  Oracle        The deterministic proof verifier (Section V-B).
+  Capsule/Play  A declarative, normalized workflow specification (Section VIII-C).
+  Boundary      The in-scope/out-of-scope contract (Section VII).
+  Kind          A verticalized work mode (security/pentest/appsec/osint/hacking).
+
+D. The Operator Loop
+--------------------
+The intended loop, which the TUI and tools are designed around, is:
+
+  1. Start or attach a session to an existing operation (or create a new one).
+  2. Declare scope, autonomy posture (permissioned | auto), and opsec level.
+  3. Run a capsule (runbook) to move through a recognizable task shape.
+  4. Inspect the findings, evidence, replay, and workflow lenses.
+  5. Promote or reject findings through first-party tools (the oracle gates promotion).
+  6. Build a deliverable through the report tool - only from sufficient operation state.
+
+Step 5 is the pivot: promotion is a first-party tool call that consults the oracle,
+not an assertion the model is free to make.
+
+--------------------------------------------------------------------------------
+IV. THE CYBER OPERATION KERNEL
+--------------------------------------------------------------------------------
+The kernel is the contribution that makes everything else possible. It is a
+provenance-carrying, event-sourced state store purpose-built for cyber operations. Its
+design bet is that *the canonical truth of an engagement should be machine-checkable
+state, not prose*. Three stores form the kernel - the ledger, the facts, and the
+relations - backed by an evidence store and a replay archive.
+
+A. The Ledger (Append-Only Activity Trail)
+------------------------------------------
+The ledger is the immutable spine. Every meaningful act appends one event. Events are
+never mutated or deleted; corrections are new events. Ledger event kinds include:
+
+  tool.called | tool.completed | tool.error | operation.note | evidence.added |
+  fact.observed | fact.verified | relation.observed | relation.verified
+
+Each event carries: a ULID-style id, project_id, operation_slug, optional session_id
+and message_id (linking the event to the exact conversational turn that caused it), the
+kind, a source, a status, an optional risk, a human summary, evidence_refs, an opaque
+JSON data payload, and a timestamp.
+
+The session/message back-references are load-bearing for auditability: any durable fact
+can be traced back through its source_event_id to the ledger event, and through the
+event to the session turn, and through the replay file to the exact tool invocation.
+
+B. Facts (Provenance-Tagged Assertions)
+---------------------------------------
+A fact is a single assertion about an entity: "component X has version Y", "route R
+exists", "finding F has proof_verdict V". Facts are uniquely keyed by the tuple
+(project_id, operation_slug, entity_kind, entity_key, fact_name), so the same assertion
+is idempotently upserted rather than duplicated. Every fact records:
+
+  writer_kind    Who wrote it: parser | tool | oracle | operator | llm_candidate
+  status         candidate | observed | verified | rejected | stale
+  confidence     Integer score (e.g., 1000 for tool/oracle, 300 for a weak hint)
+  source_event_id  The ledger event that produced the fact (lineage)
+  evidence_refs  Content hashes of backing evidence
+  expires_at     Optional staleness bound
+  time_created / time_updated
+
+The writer_kind taxonomy is the epistemic heart of the kernel. When the model proposes
+something, it writes with writer_kind = llm_candidate. When a tool captures a real
+artifact, it writes as tool. When a parser converts tool output into semantics, it
+writes as parser. When the proof oracle verifies a finding, it writes as oracle. A
+consumer can therefore filter "things the model believes" from "things the system
+observed" from "things that were verified" - a distinction unavailable to
+transcript-memory agents.
+
+C. Relations (Typed Operation Graph)
+------------------------------------
+Relations are typed edges: (src_kind, src_key) --relation--> (dst_kind, dst_key), with
+the same provenance envelope as facts (writer_kind, status, confidence, source_event_id,
+evidence_refs). They are uniquely keyed and idempotently upserted. The graph enables
+investigation-shaped queries that a pile of tool output cannot answer, for example:
+route to findings, finding to evidence, and evidence search across the finding and
+observation text that references it. The operation thus becomes an investigation
+workspace rather than a log.
+
+D. Canonical vs Derived State
+-----------------------------
+A critical architectural rule: the kernel is canonical; markdown and JSONL are
+projections. A generated "aegisec.md" context pack may exist to orient a model or a
+human, but it is explicitly a derived view and never a source of truth. This prevents
+the classic failure of notebook-first agents, where the narrative drifts away from what
+actually happened and the narrative eventually *becomes* the record.
+
+E. Kernel Schema
+----------------
+The kernel is persisted in SQLite via Drizzle. Table and column names are snake_case;
+join columns are <entity>_id. Three tables carry the kernel (DDL abridged):
+
+  cyber_ledger(id PK, project_id FK, operation_slug, session_id, message_id,
+               kind, source, status, risk, summary, evidence_refs JSON,
+               data JSON, time_created)
+    indexes: (project_id, operation_slug, time_created), (kind), (session_id)
+
+  cyber_fact(id PK, project_id FK, operation_slug, entity_kind, entity_key,
+             fact_name, value_json JSON, writer_kind, status, confidence,
+             source_event_id, evidence_refs JSON, expires_at,
+             time_created, time_updated)
+    unique: (project_id, operation_slug, entity_kind, entity_key, fact_name)
+    indexes: (project_id, operation_slug, status), (entity_kind, entity_key),
+             (source_event_id)
+
+  cyber_relation(id PK, project_id FK, operation_slug, src_kind, src_key,
+                 relation, dst_kind, dst_key, writer_kind, status, confidence,
+                 source_event_id, evidence_refs JSON, time_created, time_updated)
+    unique: (project_id, operation_slug, src_kind, src_key, relation, dst_kind, dst_key)
+    indexes: (project_id, operation_slug, status), (src_kind, src_key),
+             (dst_kind, dst_key)
+
+The unique index on facts is what enforces the "one current assertion per name"
+semantic: repeated writes become idempotent upserts that update status/confidence/value,
+which is exactly what happens when a candidate is promoted to verified, or when a
+verified fact goes stale. The ledger, by contrast, retains every intermediate event, so
+the history of a belief is never lost even as its current value changes.
+
+F. The Operation Bundle (On-Disk Layout)
+----------------------------------------
+An operation is a directory bundle under:
+    <workspace>/.aegisec/operation/<slug>/
+
+  context/     derived prompt/context artifacts (human-readable views)
+  cyber/       projected facts, relations, summaries, exports (JSONL)
+  evidence/    content-addressed proof artifacts + manifest.jsonl
+  replay/      replayable request/command/browser material
+  deliverable/ report output and packaging
+  sessions/    per-attached-session artifacts
+  events.jsonl canonical operation event log
+  meta.json    projected operation snapshot
+
+The bundle is portable: an operation can be inspected, archived, shared (redacted), or
+replayed without a running backend.
+
+--------------------------------------------------------------------------------
+V. THE PROOF-GATED FINDING LIFECYCLE
+--------------------------------------------------------------------------------
+This section describes the paper's central mechanism: how a hypothesis becomes - or
+fails to become - a reportable finding, with code, not the model, deciding.
+
+A. Lifecycle States
+-------------------
+Security work has messy intermediate states. Something can look interesting without
+being true; something can be observed without being reportable; something can be
+verified and later become stale. AEGISEC keeps these distinctions visible:
+
+  candidate   A machine- or model-generated suspicion. Not reportable.
+  observed    A meaningful signal seen in evidence or tool output. Not a verified
+              claim on its own.
+  verified    Evidence-backed and promoted through the first-party lifecycle.
+  rejected    Ruled out.
+  stale       Once true, no longer current or no longer trusted.
+  reportable  A *derived* state: verified AND evidence-backed AND (replay present OR
+              a valid structured replay exemption). Never set directly by the model.
+
+The model is allowed to explore and to write candidates. The workflow is not allowed to
+pretend every idea is a finding.
+
+B. The Proof Oracle
+-------------------
+The oracle is a deterministic, code-level verifier. It is invoked whenever a finding is
+proposed for promotion and it computes a verdict with no model involvement. The
+acceptance rule is:
+
+    passed  =  evidence_present  AND  ( replay_present  OR  exemption_valid )
+
+where:
+  evidence_present  = the finding references at least one evidence hash.
+  replay_present    = a replay bundle exists for the finding.
+  exemption_valid   = a structured replay exemption is present AND its category is on the
+                      allow-list for the operation's domain.
+
+The verdict records: status (passed | failed), a human reason, replay_state
+(present | exempt | missing), evidence_present, and exemption_valid. The oracle then
+writes two kernel artifacts: a ledger event (fact.verified on pass, fact.observed on
+fail) and a fact named "proof_verdict" with writer_kind = oracle and a confidence of
+1000 on pass / 300 on fail. Because the pass/fail decision is deterministic and stored,
+it is independently auditable and reproducible.
+
+Crucially, the oracle is not an exploitability oracle. It verifies the *shape and
+integrity of proof* - that a claim is backed and reproducible - not that a
+vulnerability is truly exploitable. This boundary is stated honestly to operators and is
+returned in the verdict reason.
+
+Pseudocode (matches the implementation):
+
+  function verifyFindingProof(input):
+      evidence_present = len(input.evidence_refs) > 0
+      replay = replayVerdict(input.domain, input.replay_present, input.replay_exemption)
+      passed = evidence_present and (input.replay_present or replay.exemption_valid)
+      if not evidence_present:
+          reason = "finding promotion is missing evidence refs"
+      else:
+          reason = replay.reason
+      appendLedger(kind = passed ? "fact.verified" : "fact.observed",
+                   source = "oracle", status = passed ? "verified" : "observed",
+                   evidence_refs = input.evidence_refs,
+                   summary = "oracle proof <status> for <finding_key>")
+      upsertFact(entity_kind = "finding", entity_key = finding_key,
+                 fact_name = "proof_verdict",
+                 writer_kind = "oracle",
+                 status = passed ? "verified" : "observed",
+                 confidence = passed ? 1000 : 300)
+      return { status, reason, replay_state, evidence_present, exemption_valid }
+
+C. Structured Replay Exemption Algebra
+--------------------------------------
+Sometimes replay is genuinely impossible: a target is destructive to re-run, or access
+was time-bounded, or the client's state changed. Naive agents express this as a sentence
+("I could not reproduce this because..."), which is unfalsifiable. AEGISEC replaces the
+sentence with a closed, machine-checkable category. The exemption is a record:
+
+    { category, rationale, domain?, approved_by_kind? }
+
+Categories are drawn from a fixed set:
+
+  destructive_target       re-running would alter or destroy the target state.
+  operator_controlled_state  reproduction depends on state the operator must supply.
+  external_dependency      depends on a third-party service out of operator control.
+  time_bound_access        the window of access has closed or is transient.
+  legacy_unspecified       migration-only; NOT considered a valid structured exemption.
+
+Each domain carries an allow-list of categories, so an exemption is only valid if it is
+plausible for that domain:
+
+  appsec   -> destructive_target, operator_controlled_state, external_dependency
+  pentest  -> destructive_target, external_dependency, time_bound_access
+  osint    -> external_dependency, time_bound_access
+  hacking  -> destructive_target, external_dependency
+  bughunt  -> destructive_target, operator_controlled_state, external_dependency
+  ctf      -> operator_controlled_state, external_dependency
+  research -> external_dependency, time_bound_access
+
+An exemption with an out-of-domain category is recorded but marked not-valid, so the
+finding still cannot become reportable. "legacy_unspecified" never counts. This design
+turns "trust me, it is not reproducible" into "which enumerated, domain-appropriate
+reason applies, and is it recorded?" - a question an auditor can answer.
+
+D. Worked Micro-Examples
+------------------------
+  (1) Model claims an IDOR but attached no evidence.
+      -> evidence_present = false, passed = false, replay_state = missing.
+      -> finding remains "observed"; the oracle records the failure. Not reportable.
+
+  (2) Model verified an XSS, attached a captured HTTP response (evidence), and a
+      .aegisec replay bundle exists.
+      -> evidence_present = true, replay_present = true, passed = true.
+      -> reportable.
+
+  (3) Pentester proved a command-injection by patching a live box, so re-running is
+      destructive. Evidence is attached and exempt {category: destructive_target,
+      rationale: "..."}.
+      -> pentest domain allows destructive_target; exemption_valid = true; passed = true.
+      -> reportable, with the exemption recorded in the kernel.
+
+  (4) Same as (3) but the operator filed it as an OSINT finding.
+      -> osint allow-list excludes destructive_target; exemption_valid = false.
+      -> not reportable; the mismatch is visible in the audit trail.
+
+--------------------------------------------------------------------------------
+VI. EVIDENCE STORE AND REPLAY FORMAT
+--------------------------------------------------------------------------------
+
+A. Content-Addressed Evidence Store
+-----------------------------------
+Evidence is the raw material of proof. AEGISEC stores it immutably and by content hash.
+The store exposes put/list/get over a per-operation directory
+(<workspace>/.aegisec/operation/<slug>/evidence/). On put:
+
+  - bytes are read (from a string, a Uint8Array, or a file path);
+  - sha256 is computed over the bytes;
+  - the extension is sniffed from the MIME type (html/txt/md/json/png/jpg/gif/webp/
+    pdf/har/har/pcap/bin);
+  - the artifact is written once as <sha256>.<ext> (idempotent, never overwritten);
+  - a manifest entry is appended to manifest.jsonl:
+        { sha256, ext, size, mime?, label?, source?, at }
+
+Because storage is content-addressed, identical captures deduplicate automatically and
+a fact's evidence_refs are stable, verifiable pointers: any consumer can recompute the
+hash and detect tampering or corruption.
+
+B. The .aegisec Replay Format (v1)
+----------------------------------
+A .aegisec file is a self-contained, line-delimited JSON stream describing one
+engagement (or run). It is designed so that `aegisec replay <file>.aegisec` can walk
+through the original conversation step by step *without ever re-executing a tool against
+a live target*. It is plain text, gzip-friendly, diff-able, and easy to attach to a
+report. The shape is exactly:
+
+    { "type": "header",  ... }   <- line 1, exactly one
+    { "type": "event",   ... }   <- lines 2..N, one per replay event
+    { "type": "trailer", ... }   <- last line, exactly one
+
+Encoding is UTF-8, LF endings, no BOM, one JSON object per line; blank lines are
+illegal. A consumer that fails to parse any line must stop and report the line number.
+
+Header fields (required): type, format ("aegisec/1"), id, scope ("session"), kind
+(security/pentest/appsec/osint/hacking), created_at, exported_at, aegisec_version; plus
+optional model {provider,id}, title, and redacted (boolean). Extra fields must be
+preserved by pass-through writers/readers.
+
+Events carry a common envelope (type, event, ts, seq, session_id, message_id?, data).
+seq is monotonic, starting at 1; replay walks events in seq order. Event kinds:
+
+  message      assistant/user text, with optional redacted_spans
+  tool_call    tool name + input (redacted if --redact), input_redacted flag
+  tool_result  status, duration_ms, output (truncated to a 64 KiB default cap with a
+               truncated flag), stdout/stderr/exit_code for bash, or a JSON "output"
+               for other tools
+  op_event     operation-level event (scope change, observation added, plan update)
+
+C. Tamper-Evidence and Signing
+------------------------------
+The trailer anchors the file:
+
+    { type: "trailer", events, duration_ms, sha256_body, signed, signature }
+
+sha256_body is the SHA-256 digest of (header_line + "\n" + event_lines joined by "\n" +
+"\n"), excluding the trailer itself. Any tampering with any earlier line changes the
+digest. If a signing tool (minisign or cosign) is available and the operator passes
+--sign, the signature of sha256_body is stored as {scheme, public_key_id?, value}.
+Replay MUST verify the format, recompute the digest and warn loudly on mismatch, and
+verify the signature when a verifier is present.
+
+D. Redaction Model
+------------------
+Exports are redaction-capable so they can be shared safely. With --redact, the tool
+replaces sensitive headers (Authorization, Cookie, Set-Cookie, Proxy-Authorization),
+JWT-shaped tokens (eyJ...), and common credential parameters (password, api_key, token,
+secret) with typed placeholders such as [redacted:header:<name>] or
+[redacted:secret:<name>]. Optional --redact=ips also masks private-range IPv4/IPv6.
+When any redaction is applied, the header's redacted flag is set true.
+
+E. Replay Semantics (No Live Fire)
+----------------------------------
+`aegisec replay <file>` MUST: (1) require format "aegisec/1"; (2) verify sha256_body and
+warn on mismatch without refusing; (3) verify the signature if present and report
+status; (4) render events in seq order in a frozen TUI session, with no tool
+re-execution, no network, and no shell; (5) support --step (pause per event) and
+--speed Nx. A replayer MUST NOT silently invoke real tools, even if the file references
+them. This is what makes a .aegisec file safe to circulate: it is a record of work, not
+a re-runnable attack.
+
+--------------------------------------------------------------------------------
+VII. BOUNDARY CONTRACT AND OPSEC GUARD
+--------------------------------------------------------------------------------
+Authorization is the precondition of ethical security work. AEGISEC treats scope not as
+a moral filter but as a *contract* the agent is obligated to respect: out-of-scope work
+is denied, not negotiated.
+
+A. The Boundary Model
+---------------------
+A boundary is:
+    { default: "allow" | "ask" | "deny", in_scope: [pattern...], out_of_scope: [pattern...] }
+
+Patterns may be URLs, hosts, or paths. The evaluator applies out_of_scope first (a match
+denies), then in_scope (a match allows), and otherwise falls to default. Matching
+semantics:
+  - URL patterns: exact origin match when the pattern contains "://", wildcard subdomain
+    match for "*.example.com", prefix match when a "/" is present, else hostname equality;
+  - host patterns: exact or "*.suffix" match;
+  - path patterns: glob ("*", "**", "?") compiled to an anchored case-insensitive regex,
+    else exact or directory-prefix match.
+
+An empty boundary (no in-scope, no out-of-scope) yields the default mode with reason
+"no boundary defined" - useful in trusted local labs, explicit and visible elsewhere.
+
+B. The Guard and the Opsec Leakage Lockdown
+-------------------------------------------
+The guard resolves the active operation's boundary from projected kernel state (with a
+legacy markdown fallback during migration) and delegates matching to the evaluator.
+Deny decisions raise a ScopeDeniedError carrying the request, the decision, and the
+matched pattern, so denials are precise and explainable.
+
+When the operation declares opsec = strict, the guard adds a leakage lockdown:
+  1. Third-party intelligence hosts are blocked outright because contacting them would
+     leak the target. The blocklist currently includes crt.sh, otx.alienvault.com,
+     www.virustotal.com, api.shodan.io, urlscan.io, and wayback-api.archive.org. The
+     guard matches host equality and subdomains.
+  2. Any "ask" decision for a non-localhost host is upgraded to "deny", so the agent
+     cannot wander outside the declared target boundary even with operator prompts.
+
+Two autonomy postures interact with scope: "permissioned" (review-oriented: the operator
+can deny, allow, or allow-always) and "auto" (higher-velocity: the harness executes
+within the operation boundary without stopping on every tool call). Opsec strict is the
+hard guardrail that makes "auto" safe within a declared scope.
+
+The net effect: a leak-prone passive-reconnaissance step that a naive agent would happily
+perform is structurally impossible under strict mode, and every denial is recorded.
+
+--------------------------------------------------------------------------------
+VIII. KNOWLEDGE, CAPABILITY, AND WORKFLOW MECHANISMS
+--------------------------------------------------------------------------------
+
+A. The Cyber Knowledge Broker
+-----------------------------
+Security reasoning is only as good as its knowledge. Naive agents either hallucinate
+advisory details or paste unsourced text. AEGISEC routes knowledge through a
+provenance-aware broker with intents and actions rather than a flat lookup:
+
+  intents: vuln_intel | methodology | tradecraft | exploit_signal | tool_docs |
+           field_research
+  actions: lookup | match_component | enrich_observed | enrich_dependency | prioritize |
+           safe_next_actions
+  modes:   live | offline | opsec_strict
+
+Vulnerability cards carry affected ranges, CVSS v3/v4, KEV flags and due dates, EPSS
+probability/percentile, and explicit exploit-signal booleans (public exploit, metasploit,
+nuclei, exploitdb). Most importantly, each card carries an *applicability state* -
+applicable | conditional | possible | not_applicable | unknown - computed by matching the
+observed component and version against affected ranges, with a reason, matched criteria,
+preconditions, fixed versions, and even source disagreements. Every card lists its
+sources with a trust level (canonical/high/medium/low), fetch time, and staleness bound,
+and marks itself degraded with errors when a source fails.
+
+This turns "there is a CVE for nginx" into "this observed nginx 1.18.0 matches the
+affected range for CVE-..., applicability = applicable, KEV = true, EPSS = 0.94, source
+= canonical, freshness = ..., safe next actions = [...]", a form an operator can act on
+and an auditor can check. Results are cache-keyed by a hash of (intent, action, query,
+observed_refs, limit) and expire on staleness boundaries.
+
+B. Capability Readiness (the Doctor)
+------------------------------------
+Agents that pretend to run tools they do not have are dangerous: a "scan" that silently
+did nothing can be mistaken for a clean result. AEGISEC probes the local environment and
+classifies each capability as ready, degraded, or unavailable:
+
+  - ready        all required and optional requirements present;
+  - degraded     required present, some optional missing;
+  - unavailable  one or more required missing.
+
+Capabilities are declared as requirement sets over binaries and runtimes (e.g., browser).
+The project deliberately does NOT bundle nmap, sqlmap, ffuf, nuclei, trivy, checkov, etc.;
+it uses what is installed and reports honestly. Missing optional tools degrade clearly,
+and a runbook step whose required capability is absent is skipped with a recorded reason
+rather than faked. This "capability honesty" is a product requirement, not polish.
+
+C. Declarative Capsules (Plays / Runbooks)
+------------------------------------------
+Unconstrained agents produce tool spam. AEGISEC constrains behavior with capsules: named,
+declarative workflow specs. A play has:
+
+    id, name, description, args[], steps[]
+
+A step is either a tool step (tool + templated args), a skill step (skill + brief), a
+conditional (if / then), or a normalized step carrying requirements. The runner:
+
+  1. resolves the play and validates required args;
+  2. evaluates each step: unmet requirements cause a skip with a reason; falsy
+     conditionals are skipped; otherwise a trace entry is produced with templated args
+     substituted from the invocation;
+  3. emits a "Execution Contract": execute exactly one step per assistant message, wait
+     for each result before the next, do not re-run the capsule while steps remain
+     pending, and if a referenced tool is unregistered, report it and continue.
+
+The built-in registry includes web-surface, network-surface, appsec-triage,
+appsec-web-triage, osint-target, ctf-warmup, api-surface, auth-surface, cloud-posture,
+container-surface, iac-triage, and binary-triage. A capsule's readiness (ready/degraded/
+unavailable) is computed from its requirements and projected into the kernel as facts, so
+the operation itself records what was runnable and what was skipped.
+
+This design converts "the agent does whatever the model feels like" into "the agent
+executes a reproducible, inspectable task shape," which is a precondition for
+deterministic evaluation.
+
+D. Kinds: One Harness, Five Disciplines
+---------------------------------------
+Security work changes shape. AEGISEC offers five kinds, each a verticalized work mode
+with its own agent prompt, glyph, accent, tagline, thinking-strings, placeholders, and
+default deliverable:
+
+  security  ◈  "Security Jarvis on your terminal" - ad-hoc install/explain/analyze
+  pentest   ◆  "Authorized engagement - scope, findings, evidence, report"
+  appsec    <>  "Read the code like a reviewer - bugs, sinks, fixes"
+  osint     [ ] "Find what is already public - sources, confidence, provenance"
+  hacking   #  "Just hack - no ceremony, no report, full speed"
+
+Switching kinds is one keystroke. Because every kind's prompt is a plain-text file in the
+repository ("public brain"), a reviewer can read, diff, and fork exactly what the model is
+told, and each kind maps to a different default deliverable (answer, pentest-report,
+code-review-report, intel-brief, shell). "Raw" is not the same as "unbounded": the boundary
+guard applies to every kind, including hacking.
+
+--------------------------------------------------------------------------------
+IX. IMPLEMENTATION
+--------------------------------------------------------------------------------
+
+A. Stack
+--------
+AEGISEC is a TypeScript monorepo (workspaces: aegisec, plugin, script, sdk, shared),
+executed on the Bun runtime (>= 1.3.11). Major components: an Effect-based effect system
+for services, Drizzle ORM over SQLite for structured state, Hono for the HTTP/SSE server,
+and a terminal UI built on OpenTUI with SolidJS primitives. Playwright provides the
+browser capability; tree-sitter grammars cover bash/powershell shell parsing. The CLI
+exposes subcommands such as serve, run, session, operation, export, replay, db, agent,
+models, and providers.
+
+B. Effect System and State Discipline
+-------------------------------------
+Services are written with Effect: composition via Effect.gen, named effects via
+Effect.fn("Domain.method"), typed errors via Schema.TaggedErrorClass, and runtimes created
+through a shared makeRuntime with a memo map that deduplicates layers. Per-directory state
+uses InstanceState (a ScopedCache keyed by directory) so that concurrently open projects do
+not share a service instance, with automatic cleanup on disposal. Preferring Effect
+services (FileSystem, ChildProcessSpawner, HttpClient, Path, Clock, DateTime) over raw
+platform APIs keeps I/O testable and interruptible. This is engineering hygiene that
+matters for reproducibility: effectful boundaries can be replaced with fakes in tests
+without mocking core behavior.
+
+C. Storage Discipline
+---------------------
+Kernel schemas live as Drizzle definitions (*.sql.ts) with snake_case columns and explicit
+indexes; migrations are generated with drizzle-kit and stored per-folder. Queryable
+operation metadata, graph, facts, relations, and proof indexes live in SQLite; immutable
+artifacts live in the content-addressed evidence directory; replay and audit exports remain
+JSONL. This split - structured state in a database, immutable artifacts by hash, audit
+trails as append-only text - is what makes the kernel both queryable and archive-friendly.
+
+D. Server and Interfaces
+------------------------
+A headless server mode ("serve") exposes the same engine over HTTP so that the benchmark
+harness (Section X) and other clients can drive sessions programmatically. The TUI is a
+chat-first surface augmented with operation lenses (findings, evidence, replay, workflow,
+report) that keep the operator oriented while the model acts through tools. Read-only tools
+explicitly report that they only read state, which matters when the thing being read is
+evidence.
+
+E. Repository Scale and Maturity Signals
+----------------------------------------
+The kernel and proof layers are substantial, independently tested modules (the cyber
+kernel alone is on the order of two thousand lines with dedicated finding/oracle modules;
+the knowledge broker and operation snapshot modules are similarly large). Prompt files for
+each kind are versioned in-repo. The release is gated by typecheck, unit tests, and build,
+with AppSec and Pentest benchmarks used as local release-confidence gates (Section X-F).
+
+--------------------------------------------------------------------------------
+X. EVALUATION METHODOLOGY
+--------------------------------------------------------------------------------
+Evaluating a proof-gated agent requires care: a benchmark that only checks the final
+answer would reward exactly the overclaiming AEGISEC is built to prevent. Our harness
+therefore scores *persisted operation state*.
+
+A. Harness Design
+-----------------
+The runner (script/bench/run.ts, script/bench/cyber.ts) boots a headless AEGISEC server
+in a disposable workspace, opens a session, sends a scenario's slash command through the
+public HTTP API, collects artifacts from the operation directory, scores them, and writes
+bench-results-<ts>.json. Prerequisites are checked (git, npm, a provider credential), and
+fixtures are provisioned safely: the harness *clones OWASP Juice Shop into a fresh
+/tmp/aegisec-bench-<ts>/ directory* and tears it down, never touching any canonical user
+checkout. This guarantee of fixture isolation is itself part of the reproducibility
+argument.
+
+B. Kernel-Artifact-Preferring Rubric
+------------------------------------
+Each scenario has a rubric that takes a text corpus (derived operation context first,
+legacy aegisec.md only as fallback, plus concatenated assistant message parts) and an
+operation-context structure extracted from the kernel, and returns a 0-100 score with
+per-check details. The design principle, quoted from the implementation's own comment:
+
+    "Scoring prefers structured kernel artifacts and uses free text only as a recall
+    supplement. A benchmark should not pass because the assistant named the right issue
+    while failing to persist evidence-backed state."
+
+Concretely, checks count things like projected route facts, projected forms, candidate
+findings, verified findings, evidence-backed findings, replay-backed findings, replay-exempt
+findings, workflow artifacts, completed steps, executed capsules, and capability readiness
+(ready/degraded/unavailable verticals). Free-text regexes exist only to give partial credit
+for recall of endpoint/secret shapes, and even those are capped by the corresponding
+projected facts.
+
+C. Scenarios
+------------
+Three scenarios map to the two hard-gated domains:
+
+  web-surface    Pentest surface mapping: discover endpoints, forms, and a secret-shaped
+                 string; produce workflow artifacts and route facts.
+  appsec-triage  AppSec triage of the running app: produce observations, workflow
+                 completion, candidate findings, operation/scope/knowledge facts,
+                 identities, deliverables, tool adapters, capsules, and vertical readiness.
+  pwn            Pentest starter flow: produce projected observations, workflow,
+                 operation state, scope/autonomy policy facts, identities, deliverables,
+                 tool adapters, capsules, and - crucially - reportable/verified/
+                 evidence-backed/replay-backed findings when findings are promoted.
+
+D. Pass/Fail Semantics (the Gate)
+---------------------------------
+A scenario passes only when its failure list is empty. Failures are semantic, not merely
+score-based. For example, the pwn scenario fails if promoted findings exist but none are
+reportable or verified; it fails if verified findings exceed evidence-backed findings
+(you cannot have more verified than evidenced); and it fails if verified findings exist
+but there is no replay-backed or replay-exempt finding. In other words, the benchmark
+encodes the paper's thesis as an executable gate: a run that asserts findings without
+evidence and replay material *cannot pass*, no matter how convincing its prose.
+
+E. Metrics
+----------
+We report, per scenario: total score (0-100), per-check earned/possible with evidence
+counts, command-ok and completion-mode (command | projection | timeout), and the derived
+counts (verified, evidence-backed, replay-backed, replay-exempt, reportable). Aggregate
+metrics across runs: pass rate per scenario, median score, and the fraction of verified
+findings that are replay-backed versus replay-exempt - the latter being a direct measure of
+how often the exemption algebra is exercised.
+
+F. Release Gates and Reproducibility Caveats
+--------------------------------------------
+AppSec and Pentest benchmarks gate the release for the 1.2 line. They are local/manual
+validation tools (they require a configured model provider credential and are not run in
+CI), because their purpose is release confidence and product-claim honesty rather than
+per-commit regression. The CI gate is typecheck + unit tests + build. We state this
+asymmetry explicitly so that reviewers can weigh it: our automated gate proves the software
+builds and behaves; our benchmark gate, run manually, is what backs the *capability* claims.
+
+G. Threats to Validity and Anti-Gaming
+--------------------------------------
+  1. Text-corpus leakage. Mitigated by preferring projected kernel artifacts and by the
+     verified <= evidence-backed invariant.
+  2. Fixture contamination. Mitigated by disposable, isolated Juice Shop clones.
+  3. Model dependence. Scores depend on the configured provider; the harness records the
+     model in the replay header. Cross-model studies are future work.
+  4. Oracle scope. The oracle checks proof shape, not exploitability; a well-evidenced
+     false positive could still pass the shape gate. This is a known boundary, stated in
+     the release notes, and is the subject of Section XI.
+  5. Exemption abuse. Because exemption categories are domain-scoped and require a
+     rationale, blanket exemptions are visible; a future audit metric should track
+     exemption rates per domain.
+
+--------------------------------------------------------------------------------
+XI. DISCUSSION
+--------------------------------------------------------------------------------
+
+A. What Is Genuinely Novel
+--------------------------
+The novelty is not any single file; it is the composition and the inversion of authority.
+Prior systems take the model as the source of truth and try to make it careful. AEGISEC
+takes the model as a hypothesis generator and makes the *system* the source of truth,
+then gates reporting on deterministic proof. The specific mechanisms that make this work
+are: (i) provenance-tagged facts with a writer taxonomy; (ii) a derived-vs-canonical
+separation; (iii) a deterministic proof oracle whose decision is itself recorded; (iv) a
+closed algebra of replay exemptions; (v) a tamper-evident, offline replay format; (vi) a
+scope contract with an opsec leakage guard; and (vii) a benchmark whose pass condition is
+the thesis itself.
+
+B. Why This Matters Beyond Tooling
+----------------------------------
+Autonomous agents are entering regulated and high-consequence domains. In every such
+domain the hard problem is not capability but *accountability*: showing, after the fact,
+why a claim was made and whether it holds. AEGISEC is a concrete, open architecture for
+accountability in one such domain (security), and we believe its pattern - proposer,
+kernel, oracle - generalizes to any domain where an LLM's fluency outruns its evidence.
+
+C. Ethics, Safety, and Dual Use
+-------------------------------
+AEGISEC is offensive-capable by design: it drives real scanners and a real browser. We
+counterbalance this with the boundary contract, the opsec leakage guard, operator-first
+confirmation, and honest capability reporting. The project ships under AGPL-3.0-or-later,
+expects authorized use, and does not bundle attack binaries - it uses what the operator
+already has, so the operator's own environment and authorization remain the gate. The
+manifesto's principles are stated as falsifiable invariants, which we believe is the right
+form for an AI security project that expects to be trusted.
+
+D. Limitations
+--------------
+  1. Domain maturity. AppSec and Pentest are the hard-gated domains. OSINT, CTF/hacking,
+     cloud/container/IaC, forensics, and binary workflows exist but are maturity-labeled and
+     should not be claimed as equally benchmarked.
+  2. Oracle scope. The oracle verifies proof shape and lifecycle constraints, not
+     exploitability. It is a gate on accountability, not an infallible judge of truth.
+  3. Wall-clock and cost. Benchmarks require a provider credential and real model runs;
+     they are manual release tools, not cheap CI checks.
+  4. Local-only. There is no cloud backend and no telemetry by design; this improves trust
+     and data-handling but limits centralized analytics and fleet-wide learning.
+
+--------------------------------------------------------------------------------
+XII. CONCLUSION AND FUTURE WORK
+--------------------------------------------------------------------------------
+AEGISEC demonstrates that an AI security agent becomes trustworthy not by making the model
+more careful, but by making the surrounding system refuse to accept the model's confidence
+as proof. Its cyber operation kernel makes security state queryable and provenance-tracked;
+its proof oracle gates reportability on evidence and replay; its exemption algebra makes
+"could not reproduce" auditable; its .aegisec format makes work circulable without live
+fire; and its benchmark refuses to pass a run that sounds right but is not backed. Together
+these form the harness-as-epistemic-gate pattern.
+
+Future work follows directly from the limitations:
+  - richer proof: extend the oracle beyond proof-shape toward domain-specific validation
+    (e.g., exploitability witnesses under controlled conditions);
+  - cross-model evaluation: run the harness across providers and models to quantify how
+    proof discipline changes overclaiming rates;
+  - exemption auditing: report per-domain exemption rates as a first-class trust metric;
+  - more gated domains: promote OSINT/CTF/cloud capsules to benchmark-gated maturity;
+  - team operations: multi-writer ledgers, review, and handoff with the same proof gate;
+  - community capsules: an ecosystem of provenance-aware runbooks and parsers.
+
+The rule remains: every mature domain needs real workflow support and real proof - not
+just a prompt. Confidence never replaces proof.
+
+--------------------------------------------------------------------------------
+APPENDIX A. ARTIFACT EVALUATION AND REPRODUCTION
+--------------------------------------------------------------------------------
+This appendix gives the minimal path for a reviewer to reproduce the artifact.
+
+  Install (requires Bun >= 1.3.11 and Node.js for native modules):
+      npm install -g aegisec
+      aegisec
+  Or from source:
+      bun install
+      bun typecheck
+      cd packages/aegisec
+      bun test --timeout 30000
+      bun run build
+  Run a scoped workflow (local lab / authorized target):
+      /doctor
+      /mode appsec
+      /runbook run appsec-web-triage http://localhost:3000
+      /share
+  Benchmarks (local/manual; require a provider credential):
+      cd packages/aegisec
+      bun run bench:cyber --domain appsec
+      bun run bench:cyber --domain pentest
+  Replay an engagement safely (no live fire):
+      aegisec replay engagement.aegisec --step
+      aegisec replay engagement.aegisec --speed 2x
+
+Note: do not run package tests from the repo root; AEGISEC uses Bun-first, package-local
+workflows.
+
+--------------------------------------------------------------------------------
+APPENDIX B. TOOL PALETTE (RUNTIME TOOL IDS THE AGENTS SEE)
+--------------------------------------------------------------------------------
+  File/code:      read, write, edit, apply_patch, glob, grep, code, bash
+  Session:        task, todo, skill, webfetch, websearch, codesearch, question, plan
+  Security core:  http_request, browser, scanner, crypto, net, vault, interact,
+                  methodology, cve (compat alias), cloud_posture, container_surface,
+                  iac_triage, binary_triage
+  Cyber workflow: doctor, runbook, play, pwn_bootstrap, workspace, scope, opsec,
+                  identity, evidence, observation, knowledge, finding, report,
+                  autonomy, share, remediate, appsec_probe, analyze
+
+Scanner primitives: crawl, dir fuzz, JavaScript analysis, port scan, service probe,
+banner grab. Adapter tools expose vertical workflows through installed local binaries
+(prowler, trivy, checkov, checksec, ...). If an adapter is missing, the tool reports
+unavailable/degraded rather than pretending success.
+
+--------------------------------------------------------------------------------
+APPENDIX C. OPERATION/CLI QUICK REFERENCE
+--------------------------------------------------------------------------------
+  Operation directory:  <workspace>/.aegisec/operation/<slug>/
+  Key files:            events.jsonl (canonical), meta.json (snapshot),
+                        cyber/*.jsonl (facts/relations projections),
+                        evidence/manifest.jsonl (+ <sha256>.<ext> blobs),
+                        replay/, deliverable/, context/
+  CLI subcommands:      serve | run | session | operation | export | replay | db |
+                        agent | models | providers | upgrade | uninstall | plugin | mcp
+  Autonomy postures:    permissioned (review) | auto (execute within boundary)
+  Opsec levels:         normal | strict (leakage lockdown)
+  Finding states:       candidate | observed | verified | rejected | stale | reportable
+  Replay exemption cats: destructive_target | operator_controlled_state |
+                        external_dependency | time_bound_access | legacy_unspecified
+  Replay format:        aegisec/1 (header/event/trailer, sha256_body anchored)
+
+--------------------------------------------------------------------------------
+REFERENCES
+--------------------------------------------------------------------------------
+[1]  The AEGISEC project. Source code, documentation, and manifesto.
+     https://github.com/kranthiyelaboina/AEGISEC (AGPL-3.0-or-later), 2025-2026.
+[2]  AEGISEC Operations. docs/OPERATIONS.md (kernel-first cyber operation model).
+[3]  AEGISEC Replay Format v1. docs/AEGISEC_FILE_FORMAT.md.
+[4]  AEGISEC Tool Reference. docs/TOOLS.md.
+[5]  AEGISEC Manifesto. docs/MANIFESTO.md.
+[6]  AEGISEC Public Prompts. docs/PROMPTS.md.
+[7]  AEGISEC Plugins. docs/PLUGINS.md.
+[8]  AEGISEC Changelog. CHANGELOG.md (1.2.0, 1.2.1).
+[9]  Effect - effect system for TypeScript. https://effect.website.
+[10] Drizzle ORM - TypeScript ORM for SQLite/Postgres/MySQL. https://orm.drizzle.team.
+[11] Bun - JavaScript/TypeScript runtime. https://bun.sh.
+[12] OWASP Juice Shop - intentionally vulnerable web application (benchmark fixture).
+     https://owasp.org/www-project-juice-shop/.
+[13] NIST. The National Vulnerability Database, KEV catalog, and CVSS. https://nvd.nist.gov.
+[14] FIRST. EPSS (Exploit Prediction Scoring System). https://www.first.org/epss.
+[15] MITRE ATT&CK, PTES, and OWASP WSTG - methodology frameworks surfaced by the
+     methodology tool.
+
+--------------------------------------------------------------------------------
+ACADEMIC KEYWORD LIST (for submission metadata)
+--------------------------------------------------------------------------------
+Autonomous agents; large language models; AI safety and accountability; security
+operations; penetration testing; application security; provenance; evidence and replay;
+reproducibility; human-in-the-loop autonomy; tool-augmented reasoning; agent harness.
+
+--------------------------------------------------------------------------------
+DOCUMENT NOTES
+--------------------------------------------------------------------------------
+- This file doubles as product documentation and as an IEEE-conference-style manuscript
+  draft. Abstract, keywords, related work, architecture, evaluation, limitations, and
+  references are included for direct submission scaffolding.
+- All technical claims in this document correspond to mechanisms present in aegisec 1.2.1
+  as found in the repository: the cyber kernel (ledger/facts/relations), the proof oracle
+  and exemption algebra, the content-addressed evidence store, the .aegisec/1 replay
+  format, the boundary guard with opsec strict leakage lockdown, the knowledge broker with
+  applicability states, the capability readiness model, the declarative capsule/play
+  runner, the five kinds, and the kernel-artifact-preferring benchmark harness.
+- Where the project intentionally limits claims (domain maturity, oracle scope, manual
+  benchmarks), this document states the limitation rather than overclaiming, consistent
+  with the project's own trust policy.
+
+END OF DOCUMENT

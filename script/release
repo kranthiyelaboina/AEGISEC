@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+VERSION=${1:-}
+
+if [ -n "$VERSION" ]; then
+  gh workflow run release.yml -f version="$VERSION"
+else
+  gh workflow run release.yml
+fi
