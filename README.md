@@ -1,4 +1,4 @@
-<h1 align="center">AEGISEC</h1>
+<h1 align="center">aegisec</h1>
 
 <p align="center">
   <sub>Developed by <b>Kranthi Yelaboina</b></sub>
@@ -100,14 +100,24 @@ When the work changes, switch posture. When something matters, keep the finding,
 Then come back later and resume without starting from zero.
 
 <p align="center">
-  <img src="assets/aegisec1.png" alt="AEGISEC terminal agent-selection menu" width="820" />
+  <a href="https://github.com/kranthiyelaboina/AEGISEC/blob/main/assets/aegisec1.png">
+    <img src="https://raw.githubusercontent.com/kranthiyelaboina/AEGISEC/main/assets/aegisec1.png" alt="AEGISEC terminal agent-selection menu" width="820" />
+  </a>
 </p>
-<p align="center"><sub>Choose a workflow posture from the terminal. Available agents and actions depend on the installed build and local configuration.</sub></p>
 
 <p align="center">
-  <img src="assets/aegisec.png" alt="AEGISEC startup screen showing local runtime checks and a resumable operation session" width="920" />
+  <sub>Choose a workflow posture from the terminal. Available agents and actions depend on the installed build and local configuration.</sub>
 </p>
-<p align="center"><sub>Startup and session-continuation view from a local terminal run.</sub></p>
+
+<p align="center">
+  <a href="https://github.com/kranthiyelaboina/AEGISEC/blob/main/assets/aegisec.png">
+    <img src="https://raw.githubusercontent.com/kranthiyelaboina/AEGISEC/main/assets/aegisec.png" alt="AEGISEC startup screen showing local runtime checks and a resumable operation session" width="920" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>Startup and session-continuation view from a local terminal run.</sub>
+</p>
 
 ## Product tour
 
@@ -143,18 +153,18 @@ Run aegisec from the workspace you are testing and keep the target scope explici
 
 ## What it does
 
-| Capability              | What it gives you                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| **AI security agent**   | A model that works inside your terminal instead of sitting in a separate chat window.              |
-| **Local tools**         | aegisec uses the tools installed on your machine and shows what is available, missing or degraded. |
-| **Runbooks**            | Security workflows that keep the agent moving through a real task instead of random tool calls.    |
-| **Agents**              | Switch posture with TAB for AppSec, Pentest, OSINT, CTF/lab and research-style work.               |
-| **Operation memory**    | Keep target, scope, activity, findings, evidence, replay and report state together.                |
-| **Findings workflow**   | Track security signals as they move from weak ideas to useful findings.                            |
-| **Evidence and replay** | Keep the material needed to understand, verify and reproduce important work.                       |
-| **Cyber knowledge**     | Bring vulnerability intelligence, advisories, methodology and tool docs into the workflow.         |
-| **Reports**             | Generate deliverables from the operation instead of reconstructing everything at the end.          |
-| **Share bundles**       | Export the work so it can be reviewed, resumed or handed off.                                      |
+| Capability | What it gives you |
+|---|---|
+| **AI security agent** | A model that works inside your terminal instead of sitting in a separate chat window. |
+| **Local tools** | aegisec uses the tools installed on your machine and shows what is available, missing or degraded. |
+| **Runbooks** | Security workflows that keep the agent moving through a real task instead of random tool calls. |
+| **Agents** | Switch posture with TAB for AppSec, Pentest, OSINT, CTF/lab and research-style work. |
+| **Operation memory** | Keep target, scope, activity, findings, evidence, replay and report state together. |
+| **Findings workflow** | Track security signals as they move from weak ideas to useful findings. |
+| **Evidence and replay** | Keep the material needed to understand, verify and reproduce important work. |
+| **Cyber knowledge** | Bring vulnerability intelligence, advisories, methodology and tool docs into the workflow. |
+| **Reports** | Generate deliverables from the operation instead of reconstructing everything at the end. |
+| **Share bundles** | Export the work so it can be reviewed, resumed or handed off. |
 
 ## Evidence-gated reporting
 
@@ -171,16 +181,21 @@ At report-build time, the predicate is re-evaluated. The report then carries a S
 The boundary matters: the gate checks **structural support and workflow eligibility**, not whether a finding is semantically correct. A claim can have evidence and successful replay yet still be mis-scoped or misinterpreted. The Merkle root also does not by itself prevent a party controlling both the report and its root from replacing both. Human review remains necessary for relevance, impact, remediation priority and disclosure decisions.
 
 <p align="center">
-  <img src="assets/aegisec%203.png" alt="AEGISEC operation workspace showing scope, evidence, replay and report status alongside contextual security analysis" width="1100" />
+  <a href="https://github.com/kranthiyelaboina/AEGISEC/blob/main/assets/aegisec%203.png">
+    <img src="https://raw.githubusercontent.com/kranthiyelaboina/AEGISEC/main/assets/aegisec%203.png" alt="AEGISEC operation workspace showing scope, evidence, replay and report status alongside contextual security analysis" width="1100" />
+  </a>
 </p>
-<p align="center"><sub>Example operation-workspace view. This is an interface illustration; the quantitative results below come from the separately described labelled benchmark fixtures.</sub></p>
+
+<p align="center">
+  <sub>Example operation-workspace view. This is an interface illustration; the quantitative results below come from the separately described labelled benchmark fixtures.</sub>
+</p>
 
 ## Research evaluation
 
 The accompanying paper, **“AEGISEC: An Automated Penetration Testing Framework with Evidence-Gated Reporting,”** evaluates the reporting gate separately from raw scanner discovery. Its headline results are specific to the labelled fixtures, tool versions and repeated-run protocol below; they are not performance guarantees for arbitrary applications.
 
 | Evaluation | Setup | Reported result |
-| --- | --- | --- |
+|---|---|---|
 | AEGISEC, gate disabled vs. enabled | OWASP Juice Shop v20.2.0; 80 labelled cases (40 vulnerable and 40 negative controls); five fresh-instance runs | Mean precision increased from **73.0% to 92.0%**; false-positive rate fell from **25.0% to 5.0%**; mean recall fell from **67.5% to 57.5%**. |
 | OWASP ZAP with the same gate | ZAP 2.16.0; same Juice Shop benchmark and five-run protocol | Mean precision increased from **68.8% to 84.3%** after its alert stream passed through the gate. |
 | Nuclei baseline | Nuclei 3.3.7; same Juice Shop benchmark | Mean precision was **87.1%** and mean recall was **54.0%** for the evaluated template set. |
@@ -243,13 +258,13 @@ The important part: the operation does not live only in chat. aegisec keeps a du
 
 Most AI security tools fall into one of two traps: they only talk, or they only wrap tools. aegisec tries to do something different: keep the workflow alive while the agent works.
 
-| Compared with             | What usually happens                                            | What aegisec does                                                              |
-| ------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Generic AI chats**      | Good advice, but detached from the actual work.                 | Runs inside the terminal workflow with tools, memory and operation state.      |
+| Compared with | What usually happens | What aegisec does |
+|---|---|---|
+| **Generic AI chats** | Good advice, but detached from the actual work. | Runs inside the terminal workflow with tools, memory and operation state. |
 | **Generic coding agents** | Great for repos and tests, but not shaped around security work. | Adds security agents, runbooks, scope, findings, evidence, replay and reports. |
-| **Scanner wrappers**      | Fast output, weak context.                                      | Turns tool output into part of a larger operation.                             |
-| **Manual notes**          | Flexible, but everything drifts apart.                          | Keeps findings, evidence, replay and reports connected.                        |
-| **Tool servers**          | Expose capabilities, but leave workflow and memory to the user. | Adds the security workflow around the tools.                                   |
+| **Scanner wrappers** | Fast output, weak context. | Turns tool output into part of a larger operation. |
+| **Manual notes** | Flexible, but everything drifts apart. | Keeps findings, evidence, replay and reports connected. |
+| **Tool servers** | Expose capabilities, but leave workflow and memory to the user. | Adds the security workflow around the tools. |
 
 ## Commands
 
